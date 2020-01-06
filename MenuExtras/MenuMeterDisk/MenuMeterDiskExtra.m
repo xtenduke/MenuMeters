@@ -34,8 +34,6 @@
 
 // Menu content
 - (NSArray *)diskSpaceMenuItemImages:(NSArray *)driveDetails;
-// Timer callback
-- (void)updateDiskActivityDisplay:(NSTimer *)timer;
 // Menu actions
 - (void)openOrEjectVolume:(id)sender;
 // Prefs
@@ -58,20 +56,9 @@
 	if (!self) {
 		return nil;
 	}
-
-	// Version check
-	isPantherOrLater = OSIsPantherOrLater();
-	isSnowLeopardOrLater = OSIsSnowLeopardOrLater();
-
-	// Load our pref bundle, we do this as a bundle because we are a plugin
-	// to SystemUIServer and as a result cannot have the same class loaded
-	// from every meter. Using a shared bundle each loads fixes this.
-	NSString *prefBundlePath = [[[bundle bundlePath] stringByDeletingLastPathComponent]
-									stringByAppendingPathComponent:kPrefBundleName];
-	ourPrefs = [[[[NSBundle bundleWithPath:prefBundlePath] principalClass] alloc] init];
+    ourPrefs = [MenuMeterDefaults sharedMenuMeterDefaults];
 	if (!ourPrefs) {
 		NSLog(@"MenuMeterDisk unable to connect to preferences. Abort.");
-		[self release];
 		return nil;
 	}
 
@@ -81,20 +68,18 @@
 	diskSpaceMonitor = [[MenuMeterDiskSpace alloc] init];
 	if (!(diskIOMonitor && diskSpaceMonitor)) {
 		NSLog(@"MenuMeterDisk unable to load data gatherers. Abort.");
-		[self release];
 		return nil;
 	}
 
 	// Calc disk space base 2 or 10 depending on system version unless the user
 	// has forced
-	if (![ourPrefs diskSpaceForceBaseTwo] && isSnowLeopardOrLater) {
+	if (![ourPrefs diskSpaceForceBaseTwo]) {
 		[diskSpaceMonitor setBaseTen:YES];
 	}
 
 	// Setup our menu
 	extraMenu = [[NSMenu alloc] initWithTitle:@""];
 	if (!extraMenu) {
-		[self release];
 		return nil;
 	}
 	// Disable menu autoenabling
@@ -103,7 +88,6 @@
 	// Set the menu extra view up
     extraView = [[MenuMeterDiskView alloc] initWithFrame:[[self view] frame] menuExtra:self];
 	if (!extraView) {
-		[self release];
 		return nil;
 	}
     [self setView:extraView];
@@ -139,10 +123,6 @@
 
 - (void)willUnload {
 
-	// Stop the timer
-	[updateTimer invalidate];  // Released by the runloop
-	updateTimer = nil;
-
 	// Unregister pref change notifications
 	[[NSDistributedNotificationCenter defaultCenter] removeObserver:self
 															   name:nil
@@ -157,22 +137,7 @@
 
 } // willUnload
 
-- (void)dealloc {
-
-	[extraMenu release];
-	[extraView release];
-	[ourPrefs release];
-	[updateTimer invalidate];  // Released by the runloop
-	[diskIOMonitor release];
-	[diskSpaceMonitor release];
-	[idleImage release];
-	[readImage release];
-	[writeImage release];
-	[readwriteImage release];
-	[fgMenuThemeColor release];
-    [super dealloc];
-
-} // dealloc
+ // dealloc
 
 ///////////////////////////////////////////////////////////////
 //
@@ -227,6 +192,13 @@
 		[item setRepresentedObject:[[diskSpaceData objectAtIndex:i] objectForKey:@"path"]];
 		[item setTarget:self];
 	}
+#ifdef OUTOFPREFPANE
+    [extraMenu addItem:[NSMenuItem separatorItem]];
+    NSMenuItem*menuItem = (NSMenuItem *)[extraMenu addItemWithTitle:[[NSBundle mainBundle] localizedStringForKey:kOpenMenuMetersPref value:nil table:nil]
+                                                             action:@selector(openMenuMetersPref:)
+                                                      keyEquivalent:@""];
+    [menuItem setTarget:self];
+#endif
 
 	return extraMenu;
 
@@ -262,8 +234,8 @@
 		NSMutableAttributedString *renderString = nil;
 
 		// Name text
-		renderString = [[[NSMutableAttributedString alloc]
-						 initWithString:[driveDetail objectForKey:@"name"]] autorelease];
+		renderString = [[NSMutableAttributedString alloc]
+						 initWithString:[driveDetail objectForKey:@"name"]];
 		[renderString addAttributes:stringAttributes range:NSMakeRange(0,[renderString length])];
 		[nameStrings addObject:renderString];
 		if ([renderString size].width > widestNameText) {
@@ -271,10 +243,10 @@
 		}
 
 		// Details
-		renderString = [[[NSMutableAttributedString alloc]
+		renderString = [[NSMutableAttributedString alloc]
 						 initWithString:[NSString stringWithFormat:@"(%@, %@)",
 											[driveDetail objectForKey:@"device"],
-											[driveDetail objectForKey:@"fstype"]]] autorelease];
+											[driveDetail objectForKey:@"fstype"]]];
 		[renderString addAttributes:stringAttributes range:NSMakeRange(0,[renderString length])];
 		[detailStrings addObject:renderString];
 		if ([renderString size].width > widestDetailsText) {
@@ -282,22 +254,22 @@
 		}
 
 		// Now used, free and total
-		renderString = [[[NSMutableAttributedString alloc]
-							initWithString:[driveDetail objectForKey:@"free"]] autorelease];
+		renderString = [[NSMutableAttributedString alloc]
+							initWithString:[driveDetail objectForKey:@"free"]];
 		[renderString addAttributes:stringAttributes range:NSMakeRange(0,[renderString length])];
 		[freeStrings addObject:renderString];
 		if ([renderString size].width > widestFreeSpaceText) {
 			widestFreeSpaceText = [renderString size].width;
 		}
-		renderString = [[[NSMutableAttributedString alloc]
-							initWithString:[driveDetail objectForKey:@"used"]] autorelease];
+		renderString = [[NSMutableAttributedString alloc]
+							initWithString:[driveDetail objectForKey:@"used"]];
 		[renderString addAttributes:stringAttributes range:NSMakeRange(0,[renderString length])];
 		[usedStrings addObject:renderString];
 		if ([renderString size].width > widestUsedSpaceText) {
 			widestUsedSpaceText = [renderString size].width;
 		}
-		renderString = [[[NSMutableAttributedString alloc]
-							initWithString:[driveDetail objectForKey:@"total"]] autorelease];
+		renderString = [[NSMutableAttributedString alloc]
+							initWithString:[driveDetail objectForKey:@"total"]];
 		[renderString addAttributes:stringAttributes range:NSMakeRange(0,[renderString length])];
 		[totalStrings addObject:renderString];
 		if ([renderString size].width > widestTotalSpaceText) {
@@ -327,12 +299,12 @@
 		// the icon to decide the menuitem height
 		NSImage *volIcon = [[driveDetails objectAtIndex:i] objectForKey:@"icon"];
 		if (!volIcon) {
-			volIcon = [[[NSImage alloc] initWithSize:NSMakeSize(32, 32)] autorelease];
+			volIcon = [[NSImage alloc] initWithSize:NSMakeSize(32, 32)];
 		}
 
 		// Build the new image
-		NSImage *menuItemImage = [[[NSImage alloc] initWithSize:NSMakeSize([volIcon size].width + 10 + (float)finalTextWidth,
-																		   [volIcon size].height)] autorelease];
+		NSImage *menuItemImage = [[NSImage alloc] initWithSize:NSMakeSize([volIcon size].width + 10 + (float)finalTextWidth,
+																		   [volIcon size].height)];
 		[menuItemImage lockFocus];
 		[volIcon compositeToPoint:NSMakePoint(0, 0) operation:NSCompositeSourceOver];
 		[(NSAttributedString *)[nameStrings objectAtIndex:i]
@@ -361,7 +333,7 @@
 //
 ///////////////////////////////////////////////////////////////
 
-- (void)updateDiskActivityDisplay:(NSTimer *)timer {
+- (void)timerFired:(NSTimer *)timer {
 
 	// Have the monitor report state
 	DiskIOActivityType activity = [diskIOMonitor diskIOActivity];
@@ -370,11 +342,10 @@
 	if (activity != displayedActivity) {
 		// Store out the new status
 		displayedActivity = activity;
-		// Have the view update our display
-		[extraView setNeedsDisplay:YES];
 	}
+	[super timerFired:timer];
 
-} // updateDiskActivityDisplay
+} // timerFired
 
 ///////////////////////////////////////////////////////////////
 //
@@ -442,8 +413,7 @@
 	[ourPrefs syncWithDisk];
 
 	// Handle menubar theme changes
-	[fgMenuThemeColor release];
-	fgMenuThemeColor = [MenuItemTextColor() retain];
+	fgMenuThemeColor = MenuItemTextColor();
 	
 	// Decide on image set name prefix
 	NSString *imageSetNamePrefix = [kDiskImageSets objectAtIndex:[ourPrefs diskImageset]];
@@ -457,13 +427,9 @@
 	[bootDiskIcon setSize:NSMakeSize(kDiskViewWidth, kDiskViewWidth)];
 
 	// Release current images
-	[idleImage release];
 	idleImage = nil;
-	[readImage release];
 	readImage = nil;
-	[writeImage release];
 	writeImage = nil;
-	[readwriteImage release];
 	readwriteImage = nil;
 
 	// Setup new images as overlays or basic images
@@ -480,9 +446,9 @@
 		[readImage lockFocus];
 		[bootDiskIcon compositeToPoint:NSMakePoint(0, (menubarHeight - kDiskViewWidth) / 2)
 							 operation:NSCompositeSourceOver];
-		[[[[NSImage alloc] initWithContentsOfFile:
+		[[[NSImage alloc] initWithContentsOfFile:
 		   [[self bundle] pathForResource:[imageSetNamePrefix stringByAppendingString:@"Read"]
-								   ofType:@"tiff"]] autorelease]
+								   ofType:@"tiff"]]
 			compositeToPoint:NSMakePoint(0, 0) operation:NSCompositeSourceOver];
 		[readImage unlockFocus];
 		// Write
@@ -490,9 +456,9 @@
 		[writeImage lockFocus];
 		[bootDiskIcon compositeToPoint:NSMakePoint(0, (menubarHeight - kDiskViewWidth) / 2)
 							 operation:NSCompositeSourceOver];
-		[[[[NSImage alloc] initWithContentsOfFile:
+		[[[NSImage alloc] initWithContentsOfFile:
 			[[self bundle]pathForResource:[imageSetNamePrefix stringByAppendingString:@"Write"]
-								   ofType:@"tiff"]] autorelease]
+								   ofType:@"tiff"]]
 			compositeToPoint:NSMakePoint(0, 0) operation:NSCompositeSourceOver];
 		[writeImage unlockFocus];
 		// Read/Write
@@ -500,9 +466,9 @@
 		[readwriteImage lockFocus];
 		[bootDiskIcon compositeToPoint:NSMakePoint(0, (menubarHeight - kDiskViewWidth) / 2)
 							 operation:NSCompositeSourceOver];
-		[[[[NSImage alloc] initWithContentsOfFile:
+		[[[NSImage alloc] initWithContentsOfFile:
 			[[self bundle]pathForResource:[imageSetNamePrefix stringByAppendingString:@"ReadWrite"]
-								   ofType:@"tiff"]] autorelease]
+								   ofType:@"tiff"]]
 			compositeToPoint:NSMakePoint(0, 0) operation:NSCompositeSourceOver];
 		[readwriteImage unlockFocus];
 	} else if ([ourPrefs diskImageset]  == kDiskArrowsLargeImageSet) {
@@ -562,22 +528,8 @@
 						pathForResource:[imageSetNamePrefix stringByAppendingString:@"ReadWrite"] ofType:@"tiff"]];
 	}
 
-	// Restart the timer
-	[updateTimer invalidate];  // Runloop releases and retains the next one
-	updateTimer = [NSTimer scheduledTimerWithTimeInterval:[ourPrefs diskInterval]
-												   target:self
-												 selector:@selector(updateDiskActivityDisplay:)
-												 userInfo:nil
-												  repeats:YES];
-	// On newer OS versions we need to put the timer into EventTracking to update while the menus are down
-	if (isPantherOrLater) {
-		[[NSRunLoop currentRunLoop] addTimer:updateTimer
-									 forMode:NSEventTrackingRunLoopMode];
-	}
-
-	// Flag us for redisplay
-	[extraView setNeedsDisplay:YES];
-
+	// Force initial update
+	[self timerFired:nil];
 } // configFromPrefs
 
 @end

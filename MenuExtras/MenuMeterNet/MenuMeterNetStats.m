@@ -39,10 +39,9 @@
 	}
 
 	// Establish or connection to the PPP data gatherer
-	pppGatherer = [[MenuMeterNetPPP sharedPPP] retain];
+	pppGatherer = [MenuMeterNetPPP sharedPPP];
 	if (!pppGatherer) {
 		NSLog(@"MenuMeterNetStats unable to connect to PPP data gatherer. Abort.");
-		[self release];
 		return nil;
 	}
 
@@ -56,10 +55,7 @@
 - (void)dealloc {
 
 	// Free our sysctl buffer
-	[pppGatherer release];
 	if (sysctlBuffer) free(sysctlBuffer);
-	[lastData release];
-	[super dealloc];
 
 } // dealloc
 
@@ -113,10 +109,7 @@
 			continue;
 		}
 		// Build the interface name to string so we can key off it
-		// (using NSData here because initWithBytes is 10.3 and later)
-		NSString *interfaceName = [[[NSString alloc]
-										initWithData:[NSData dataWithBytes:sdl->sdl_data length:sdl->sdl_nlen]
-									encoding:NSASCIIStringEncoding] autorelease];
+		NSString *interfaceName = [[NSString alloc] initWithBytes:sdl->sdl_data length:sdl->sdl_nlen encoding:NSASCIIStringEncoding];
 		if (!interfaceName) {
 			currentData += ifmsg->ifm_msglen;
 			continue;
@@ -267,8 +260,7 @@
 	}
 
 	// Store and return
-	[lastData release];
-	lastData = [newStats retain];
+	lastData = newStats;
 	return newStats;
 
 } // netStatsForInterval

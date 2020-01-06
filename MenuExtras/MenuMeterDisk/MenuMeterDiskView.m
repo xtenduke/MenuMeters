@@ -43,11 +43,7 @@
 
 } // initWithFrame
 
-- (void)dealloc {
-
-    [super dealloc];
-
-} // dealloc
+ // dealloc
 
 ///////////////////////////////////////////////////////////////
 //
@@ -63,8 +59,7 @@
     if (image) {
 		// Live updating even when menu is down handled by making the extra
 		// draw the background if needed.
-		if ([diskMenuExtra isMenuDown] || 
-			([diskMenuExtra respondsToSelector:@selector(isMenuDownForAX)] && [diskMenuExtra isMenuDownForAX])) {
+		if (diskMenuExtra.isMenuVisible) {
 			[diskMenuExtra drawMenuBackground:YES];
 		}
 		// Disk images are 22px (same height as menubar and our view)

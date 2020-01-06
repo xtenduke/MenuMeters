@@ -29,6 +29,7 @@
 #import "MenuMeterCPU.h"
 #import "MenuMeterCPUView.h"
 #import "MenuMeterCPUStats.h"
+#import "MenuMeterCPUTopProcesses.h"
 #import "MenuMeterUptime.h"
 #import "MenuMeterPowerMate.h"
 #import "MenuMeterWorkarounds.h"
@@ -39,14 +40,11 @@
 	// Menu Extra necessities
 	NSMenu 							*extraMenu;
     MenuMeterCPUView 				*extraView;
-	// Is this Panther?
-	BOOL							isPantherOrLater;
-	// The timer
-	NSTimer							*updateTimer;
 	// Prefs object
 	MenuMeterDefaults				*ourPrefs;
 	// Info gatherers
 	MenuMeterCPUStats				*cpuInfo;
+    MenuMeterCPUTopProcesses        *cpuTopProcesses;
 	MenuMeterUptime					*uptimeInfo;
 	// PowerMate support
 	MenuMeterPowerMate				*powerMate;
@@ -62,7 +60,8 @@
 	// Cached colors and theme support
 	NSColor							*userColor,
 									*systemColor,
-									*fgMenuThemeColor;
+									*fgMenuThemeColor,
+                                    *temperatureColor;
 
 } // MenuMeterCPUExtra
 

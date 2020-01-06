@@ -43,11 +43,7 @@
 
 } // initWithFrame
 
-- (void)dealloc {
-
-    [super dealloc];
-
-} // dealloc
+ // dealloc
 
 
 ///////////////////////////////////////////////////////////////
@@ -64,8 +60,7 @@
     if (image) {
 		// Live updating even when menu is down handled by making the extra
 		// draw the background if needed.
-		if ([memMenuExtra isMenuDown] || 
-			([memMenuExtra respondsToSelector:@selector(isMenuDownForAX)] && [memMenuExtra isMenuDownForAX])) {
+		if (memMenuExtra.isMenuVisible) {
 			[memMenuExtra drawMenuBackground:YES];
 		}
 		// Mem extra image is is height - 1 to skip edge of menubar

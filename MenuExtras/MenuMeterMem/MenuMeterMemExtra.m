@@ -39,11 +39,11 @@
 - (void)renderPieIntoImage:(NSImage *)image;
 - (void)renderNumbersIntoImage:(NSImage *)image;
 - (void)renderBarIntoImage:(NSImage *)image;
+- (void)renderPressureBar:(NSImage *)image;
 - (void)renderMemHistoryIntoImage:(NSImage *)image;
 - (void)renderPageIndicatorIntoImage:(NSImage *)image;
 
 // Timer callbacks
-- (void)updateMemDisplay:(NSTimer *)timer;
 - (void)updateMenuWhenDown;
 
 // Prefs
@@ -95,35 +95,23 @@
 		return nil;
 	}
 
-	// Panther and Tiger check
-	isPantherOrLater = OSIsPantherOrLater();
-	isTigerOrLater = OSIsTigerOrLater();
-
-	// Load our pref bundle, we do this as a bundle because we are a plugin
-	// to SystemUIServer and as a result cannot have the same class loaded
-	// from every meter. Using a shared bundle each loads fixes this.
-	NSString *prefBundlePath = [[[bundle bundlePath] stringByDeletingLastPathComponent]
-									stringByAppendingPathComponent:kPrefBundleName];
-	ourPrefs = [[[[NSBundle bundleWithPath:prefBundlePath] principalClass] alloc] init];
-	if (!ourPrefs) {
+    ourPrefs = [MenuMeterDefaults sharedMenuMeterDefaults];
+    if (!ourPrefs) {
 		NSLog(@"MenuMeterMem unable to connect to preferences. Abort.");
-		[self release];
 		return nil;
 	}
 
 	// Build our CPU statistics gatherer and history
 	memStats = [[MenuMeterMemStats alloc] init];
-	memHistory = [[NSMutableArray array] retain];
+	memHistory = [NSMutableArray array];
 	if (!(memStats && memHistory)) {
 		NSLog(@"MenuMeterMem unable to load data gatherer or storage. Abort.");
-		[self release];
 		return nil;
 	}
 
 	// Setup our menu
 	extraMenu = [[NSMenu alloc] initWithTitle:@""];
 	if (!extraMenu) {
-		[self release];
 		return nil;
 	}
 	// Disable menu autoenabling
@@ -175,17 +163,23 @@
 	[menuItem setEnabled:NO];
 	menuItem = (NSMenuItem *)[extraMenu addItemWithTitle:@"" action:nil keyEquivalent:@""];
 	[menuItem setEnabled:NO];
+#ifdef OUTOFPREFPANE
+    [extraMenu addItem:[NSMenuItem separatorItem]];
+    menuItem = (NSMenuItem *)[extraMenu addItemWithTitle:[[NSBundle mainBundle] localizedStringForKey:kOpenMenuMetersPref value:nil table:nil]
+                                                  action:@selector(openMenuMetersPref:)
+                                           keyEquivalent:@""];
+    [menuItem setTarget:self];
+#endif
 
 	// Get our view
     extraView = [[MenuMeterMemView alloc] initWithFrame:[[self view] frame] menuExtra:self];
 	if (!extraView) {
-		[self release];
 		return nil;
 	}
     [self setView:extraView];
 
 	// Load localized strings
-	localizedStrings = [[NSDictionary dictionaryWithObjectsAndKeys:
+	localizedStrings = [NSDictionary dictionaryWithObjectsAndKeys:
 							[[NSBundle bundleForClass:[self class]] localizedStringForKey:kUsageFormat value:nil table:nil],
 							kUsageFormat,
 							[[NSBundle bundleForClass:[self class]] localizedStringForKey:kActiveWiredFormat value:nil table:nil],
@@ -218,28 +212,26 @@
 							kSwapSizeUsedFormat,
 							[[NSBundle bundleForClass:[self class]] localizedStringForKey:kMBLabel value:nil table:nil],
 							kMBLabel,
-							nil] retain];
+							nil];
 	if (!localizedStrings) {
-		[self release];
 		return nil;
 	}
 
 	// Set up a NumberFormatter for localization. This is based on code contributed by Mike Fischer
 	// (mike.fischer at fi-works.de) for use in MenuMeters.
-	NSNumberFormatter *tempFormat = [[[NSNumberFormatter alloc] init] autorelease];
+	NSNumberFormatter *tempFormat = [[NSNumberFormatter alloc] init];
 	[tempFormat setLocalizesFormat:YES];
 	[tempFormat setFormat:[NSString stringWithFormat:@"#,##0.0%@", [localizedStrings objectForKey:kMBLabel]]];
 	// Go through an archive/unarchive cycle to work around a bug on pre-10.2.2 systems
 	// see http://cocoa.mamasam.com/COCOADEV/2001/12/2/21029.php
-	memFloatMBFormatter = [[NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormat]] retain];
+	memFloatMBFormatter = [NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormat]];
 	[tempFormat setFormat:[NSString stringWithFormat:@"#,##0%@", [localizedStrings objectForKey:kMBLabel]]];
-	memIntMBFormatter = [[NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormat]] retain];
+	memIntMBFormatter = [NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormat]];
 	[tempFormat setFormat:@"#,##0"];
-	prettyIntFormatter = [[NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormat]] retain];
+	prettyIntFormatter = [NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormat]];
 	[tempFormat setFormat:@"##0.0%"];
-	percentFormatter = [[NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormat]] retain];
+	percentFormatter = [NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormat]];
 	if (!(memFloatMBFormatter && memIntMBFormatter && prettyIntFormatter && percentFormatter)) {
-		[self release];
 		return nil;
 	}
 
@@ -257,9 +249,6 @@
 	// And configure directly from prefs on first load
 	[self configFromPrefs:nil];
 
-	// Fake a timer call to config initial values
-	[self updateMemDisplay:nil];
-
     // And hand ourself back to SystemUIServer
 	NSLog(@"MenuMeterMem loaded.");
     return self;
@@ -267,10 +256,6 @@
 } // initWithBundle
 
 - (void)willUnload {
-
-	// Stop the timer
-	[updateTimer invalidate];  // Released by the runloop
-	updateTimer = nil;
 
 	// Unregister pref change notifications
 	[[NSDistributedNotificationCenter defaultCenter] removeObserver:self
@@ -286,34 +271,7 @@
 
 } // willUnload
 
-- (void)dealloc {
-
-	// Release the view and menu
-	[extraView release];
-    [extraMenu release];
-	[updateTimer invalidate];  // Released by the runloop
-	[ourPrefs release];
-	[memStats release];
-	[localizedStrings release];
-	[memFloatMBFormatter release];
-	[memIntMBFormatter release];
-	[prettyIntFormatter release];
-	[percentFormatter release];
-	[freeColor release];
-	[usedColor release];
-	[activeColor release];
-	[inactiveColor release];
-	[wireColor release];
-	[compressedColor release];
-	[pageInColor release];
-	[pageOutColor release];
-	[numberLabelPrerender release];
-	[memHistory release];
-	[currentSwapStats release];
-	[fgMenuThemeColor release];
-	[super dealloc];
-
-} // dealloc
+ // dealloc
 
 ///////////////////////////////////////////////////////////////
 //
@@ -324,8 +282,8 @@
 - (NSImage *)image {
 
 	// Image to render into (and return to view)
-	NSImage *currentImage = [[[NSImage alloc] initWithSize:NSMakeSize(menuWidth,
-																	  [extraView frame].size.height - 1)] autorelease];
+	NSImage *currentImage = [[NSImage alloc] initWithSize:NSMakeSize(menuWidth,
+																	  [extraView frame].size.height - 1)];
 
 	// Don't render without data
 	if (![memHistory count]) return nil;
@@ -338,7 +296,12 @@
 			[self renderNumbersIntoImage:currentImage];
 			break;
 		case kMemDisplayBar:
-			[self renderBarIntoImage:currentImage];
+      if ([ourPrefs memPressure] == true) {
+        [self renderPressureBar:currentImage];
+      }
+      else {
+        [self renderBarIntoImage:currentImage];
+      }
 			break;
 		case kMemDisplayGraph:
 			[self renderMemHistoryIntoImage:currentImage];
@@ -369,8 +332,7 @@
 	}
 	NSDictionary *newSwapStats = [memStats swapStats];
 	if (newSwapStats) {
-		[currentSwapStats release];
-		currentSwapStats = [newSwapStats retain];
+		currentSwapStats = newSwapStats;
 	}
 
 	// Update the menu content
@@ -450,20 +412,12 @@
 					[prettyIntFormatter stringForObjectValue:[currentMemStats objectForKey:@"cowfaults"]]]];
 	LiveUpdateMenuItemTitle(extraMenu, kMemVMFaultInfoMenuIndex, title);
 	// Swap count/path, Tiger swap encryptioninfo from Michael Nordmeyer (http://goodyworks.com)
-	if (isTigerOrLater && [[currentSwapStats objectForKey:@"swapencrypted"] boolValue]) {
+	if ([[currentSwapStats objectForKey:@"swapencrypted"] boolValue]) {
 		title = [NSString stringWithFormat:kMenuIndentFormat,
 					[NSString stringWithFormat:
 						(([[currentSwapStats objectForKey:@"swapcount"] unsignedIntValue] > 1) ?
 							[localizedStrings objectForKey:kMultiEncryptedSwapFormat] :
 							[localizedStrings objectForKey:kSingleEncryptedSwapFormat]),
-						[prettyIntFormatter stringForObjectValue:[currentSwapStats objectForKey:@"swapcount"]],
-						[currentSwapStats objectForKey:@"swappath"]]];
-	} else {
-		title = [NSString stringWithFormat:kMenuIndentFormat,
-					[NSString stringWithFormat:
-						(([[currentSwapStats objectForKey:@"swapcount"] unsignedIntValue] > 1) ?
-							[localizedStrings objectForKey:kMultiSwapFormat] :
-							[localizedStrings objectForKey:kSingleSwapFormat]),
 						[prettyIntFormatter stringForObjectValue:[currentSwapStats objectForKey:@"swapcount"]],
 						[currentSwapStats objectForKey:@"swappath"]]];
 	}
@@ -477,16 +431,10 @@
 					[prettyIntFormatter stringForObjectValue:[currentSwapStats objectForKey:@"swapcountpeak"]]]];
 	LiveUpdateMenuItemTitle(extraMenu, kMemSwapMaxCountInfoMenuIndex, title);
 	// Swap size, Tiger swap used path from Michael Nordmeyer (http://goodyworks.com)
-	if (isTigerOrLater) {
-		title = [NSString stringWithFormat:kMenuIndentFormat,
-			[NSString stringWithFormat:[localizedStrings objectForKey:kSwapSizeUsedFormat],
-				[memIntMBFormatter stringForObjectValue:[currentSwapStats objectForKey:@"swapsizemb"]],
-				[memIntMBFormatter stringForObjectValue:[currentSwapStats objectForKey:@"swapusedmb"]]]];
-	} else {
-		title = [NSString stringWithFormat:kMenuIndentFormat,
-					[NSString stringWithFormat:[localizedStrings objectForKey:kSwapSizeFormat],
-						[memIntMBFormatter stringForObjectValue:[currentSwapStats objectForKey:@"swapsize"]]]];
-	}
+	title = [NSString stringWithFormat:kMenuIndentFormat,
+		[NSString stringWithFormat:[localizedStrings objectForKey:kSwapSizeUsedFormat],
+			[memIntMBFormatter stringForObjectValue:[currentSwapStats objectForKey:@"swapsizemb"]],
+			[memIntMBFormatter stringForObjectValue:[currentSwapStats objectForKey:@"swapusedmb"]]]];
 	LiveUpdateMenuItemTitle(extraMenu, kMemSwapSizeInfoMenuIndex, title);
 
 } // updateMenuContent
@@ -612,23 +560,23 @@
 	[image lockFocus];
 
 	// Construct strings
-	NSAttributedString *renderUString = [[[NSAttributedString alloc]
+	NSAttributedString *renderUString = [[NSAttributedString alloc]
 													initWithString:[NSString stringWithFormat:@"%.0f%@",
 																		usedMB,
 																		[localizedStrings objectForKey:kMBLabel]]
 														attributes:[NSDictionary dictionaryWithObjectsAndKeys:
 																		[NSFont systemFontOfSize:9.5f], NSFontAttributeName,
 																		usedColor, NSForegroundColorAttributeName,
-																		nil]] autorelease];
+																		nil]];
 	// Construct and draw the free string
-	NSAttributedString *renderFString = [[[NSAttributedString alloc]
+	NSAttributedString *renderFString = [[NSAttributedString alloc]
 													initWithString:[NSString stringWithFormat:@"%.0f%@",
 																		freeMB,
 																		[localizedStrings objectForKey:kMBLabel]]
 														attributes:[NSDictionary dictionaryWithObjectsAndKeys:
 																		[NSFont systemFontOfSize:9.5f], NSFontAttributeName,
 																		freeColor, NSForegroundColorAttributeName,
-																		nil]] autorelease];
+																		nil]];
 
 	// Draw the prerendered label
 	if ([ourPrefs memUsedFreeLabel]) {
@@ -644,6 +592,39 @@
 	[image unlockFocus];
 
 } // renderNumbersIntoImage
+
+- (void)renderPressureBar:(NSImage *)image {
+  // Load current stats
+  float pressure = 0.2f;
+  NSDictionary *currentMemStats = [memHistory objectAtIndex:0];
+  if (currentMemStats) {
+    pressure = [[currentMemStats objectForKey:@"mempress"] floatValue];
+  }
+  
+  if (pressure < 0) { pressure = 0; };
+  
+  // Lock focus and draw
+  [image lockFocus];
+  float thermometerTotalHeight = (float)[image size].height - 3.0f;
+  
+  NSBezierPath *pressurePath = [NSBezierPath bezierPathWithRect:NSMakeRect(1.5f, 1.5f, kMemThermometerDisplayWidth - 3, thermometerTotalHeight * pressure)];
+  
+  NSBezierPath *framePath = [NSBezierPath bezierPathWithRect:NSMakeRect(1.5f, 1.5f, kMemThermometerDisplayWidth - 3, thermometerTotalHeight)];
+
+  [activeColor set];
+  [pressurePath fill];
+  
+  if (IsMenuMeterMenuBarDarkThemed()) {
+    [[NSColor darkGrayColor] set];
+  } else {
+    [fgMenuThemeColor set];
+  }
+  [framePath stroke];
+  
+  // Reset
+  [[NSColor blackColor] set];
+  [image unlockFocus];
+}
 
 //  Bar mode memory view contributed by Bernhard Baehr
 - (void)renderBarIntoImage:(NSImage *)image {
@@ -839,12 +820,12 @@
 	} else {
 		countString = [NSString stringWithFormat:@"%d", (int)(pageIns + pageOuts)];
 	}
-	NSAttributedString *renderString = [[[NSAttributedString alloc]
+	NSAttributedString *renderString = [[NSAttributedString alloc]
 											initWithString:countString
 												attributes:[NSDictionary dictionaryWithObjectsAndKeys:
 																[NSFont systemFontOfSize:9.5f], NSFontAttributeName,
 																fgMenuThemeColor, NSForegroundColorAttributeName,
-																nil]] autorelease];
+																nil]];
 	// Using NSParagraphStyle to right align clipped weird, so do it manually
 	// Also draw low to ignore descenders
 	NSSize renderSize = [renderString size];
@@ -863,7 +844,7 @@
 //
 ///////////////////////////////////////////////////////////////
 
-- (void)updateMemDisplay:(NSTimer *)timer {
+- (void)timerFired:(NSTimer *)timer {
 
 	NSDictionary *currentStats = [memStats memStats];
 	if (!currentStats) return;
@@ -878,24 +859,18 @@
 	}
 	[memHistory addObject:currentStats];
 
-	// This code used to try to avoid a redraw if nothing had changed, but
-	// the cost of a redraw is so low its a false optimization.
-	[extraView setNeedsDisplay:YES];
-
 	// If the menu is down, update it
-	if ([self isMenuDown] || 
-		([self respondsToSelector:@selector(isMenuDownForAX)] && [self isMenuDownForAX])) {
+	if (self.isMenuVisible) {
 		[self updateMenuWhenDown];
 	}
-
-} // updateMemDisplay
+	[super timerFired:timer];
+} // timerFired
 
 - (void)updateMenuWhenDown {
 
 	NSDictionary *newSwapStats = [memStats swapStats];
 	if (newSwapStats) {
-		[currentSwapStats release];
-		currentSwapStats = [newSwapStats retain];
+		currentSwapStats = newSwapStats;
 	}
 
 	// Update the menu content
@@ -921,32 +896,22 @@
 	[ourPrefs syncWithDisk];
 
 	// Handle menubar theme changes
-	[fgMenuThemeColor release];
-	fgMenuThemeColor = [MenuItemTextColor() retain];
+	fgMenuThemeColor = MenuItemTextColor();
 	
 	// Cache colors to skip archive cycle from prefs
-	[freeColor release];
-	freeColor = [[ourPrefs memFreeColor] retain];
-	[usedColor release];
-	usedColor = [[ourPrefs memUsedColor] retain];
-	[activeColor release];
-	activeColor = [[ourPrefs memActiveColor] retain];
-	[inactiveColor release];
-	inactiveColor = [[ourPrefs memInactiveColor] retain];
-	[wireColor release];
-	wireColor = [[ourPrefs memWireColor] retain];
-	[compressedColor release];
-	compressedColor = [[ourPrefs memCompressedColor] retain];
-	[pageInColor release];
-	pageInColor = [[ourPrefs memPageInColor] retain];
-	[pageOutColor release];
-	pageOutColor = [[ourPrefs memPageOutColor] retain];
+	freeColor = [ourPrefs memFreeColor];
+	usedColor = [ourPrefs memUsedColor];
+	activeColor = [ourPrefs memActiveColor];
+	inactiveColor = [ourPrefs memInactiveColor];
+	wireColor = [ourPrefs memWireColor];
+	compressedColor = [ourPrefs memCompressedColor];
+	pageInColor = [ourPrefs memPageInColor];
+	pageOutColor = [ourPrefs memPageOutColor];
 
 	// Since text rendering is so CPU intensive we minimize this by
 	// prerendering what we can if we need it
-	[numberLabelPrerender release];
 	numberLabelPrerender = nil;
-	NSAttributedString *renderUString = [[[NSAttributedString alloc]
+	NSAttributedString *renderUString = [[NSAttributedString alloc]
 											initWithString:[[NSBundle bundleForClass:[self class]]
 															   localizedStringForKey:kUsedLabel
 																			   value:nil
@@ -954,8 +919,8 @@
 												attributes:[NSDictionary dictionaryWithObjectsAndKeys:
 																[NSFont systemFontOfSize:9.5f], NSFontAttributeName,
 																[ourPrefs memUsedColor], NSForegroundColorAttributeName,
-																nil]] autorelease];
-	NSAttributedString *renderFString = [[[NSAttributedString alloc]
+																nil]];
+	NSAttributedString *renderFString = [[NSAttributedString alloc]
 											initWithString:[[NSBundle bundleForClass:[self class]]
 																localizedStringForKey:kFreeLabel
 																				value:nil
@@ -963,7 +928,7 @@
 												attributes:[NSDictionary dictionaryWithObjectsAndKeys:
 																[NSFont systemFontOfSize:9.5f], NSFontAttributeName,
 																[ourPrefs memFreeColor], NSForegroundColorAttributeName,
-																nil]] autorelease];
+																nil]];
 	if ([renderUString size].width > [renderFString size].width) {
 		numberLabelPrerender = [[NSImage alloc] initWithSize:NSMakeSize([renderUString size].width,
 																		[extraView frame].size.height - 1)];
@@ -980,11 +945,11 @@
 	// Figure out the length of "MB" localization
 	float mbLength = 0;
 	if ([ourPrefs memDisplayMode] == kMemDisplayNumber) {
-		NSAttributedString *renderMBString =  [[[NSAttributedString alloc]
+		NSAttributedString *renderMBString =  [[NSAttributedString alloc]
 													initWithString:[localizedStrings objectForKey:kMBLabel]
 														attributes:[NSDictionary dictionaryWithObjectsAndKeys:
 																		[NSFont systemFontOfSize:9.5f], NSFontAttributeName,
-																		nil]] autorelease];
+																		nil]];
 		mbLength = (float)ceil([renderMBString size].width);
 	}
 
@@ -1023,26 +988,12 @@
 		menuWidth += kMemPagingDisplayWidth + kMemPagingDisplayGapWidth;
 	}
 
-	// Restart the timer
-	[updateTimer invalidate];  // Runloop releases and retains the next one
-	updateTimer = [NSTimer scheduledTimerWithTimeInterval:[ourPrefs memInterval]
-												   target:self
-												 selector:@selector(updateMemDisplay:)
-												 userInfo:nil
-												  repeats:YES];
-	// On newer OS versions we need to put the timer into EventTracking to update while the menus are down
-	if (isPantherOrLater) {
-		[[NSRunLoop currentRunLoop] addTimer:updateTimer
-									 forMode:NSEventTrackingRunLoopMode];
-	}
-
 	// Resize the view
 	[extraView setFrameSize:NSMakeSize(menuWidth, [extraView frame].size.height)];
 	[self setLength:menuWidth];
 
-	// Flag us for redisplay
-	[extraView setNeedsDisplay:YES];
-
+	// Force initial update
+	[self timerFired:nil];
 } // configFromPrefs
 
 @end

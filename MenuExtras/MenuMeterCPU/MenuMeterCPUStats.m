@@ -24,6 +24,9 @@
 #import "MenuMeterCPUStats.h"
 
 
+@implementation MenuMeterCPULoad
+@end
+
 ///////////////////////////////////////////////////////////////
 //
 //	Private methods
@@ -54,6 +57,9 @@
 ///////////////////////////////////////////////////////////////
 
 @implementation MenuMeterCPUStats
+uint32_t cpuCount;
+uint32_t coreCount;
+uint32_t packageCount;
 
 - (id)init {
 
@@ -64,23 +70,21 @@
 	}
 
 	// Gather the pretty name
-	cpuName = [[self cpuPrettyName] retain];
+	cpuName = [self cpuPrettyName];
 	if (!cpuName) {
-		[self release];
 		return nil;
 	}
 
 	// Set up a NumberFormatter for localization. This is based on code contributed by Mike Fischer
 	// (mike.fischer at fi-works.de) for use in MenuMeters.
 	// We have to do this early so we can use the resulting format on the GHz processor string
-	NSNumberFormatter *tempFormatter = [[[NSNumberFormatter alloc] init] autorelease];
+	NSNumberFormatter *tempFormatter = [[NSNumberFormatter alloc] init];
 	[tempFormatter setLocalizesFormat:YES];
 	[tempFormatter setFormat:@"0.00"];
 	// Go through an archive/unarchive cycle to work around a bug on pre-10.2.2 systems
 	// see http://cocoa.mamasam.com/COCOADEV/2001/12/2/21029.php
-	twoDigitFloatFormatter = [[NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormatter]] retain];
+	twoDigitFloatFormatter = [NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormatter]];
 	if (!twoDigitFloatFormatter) {
-		[self release];
 		return nil;
 	}
 
@@ -89,19 +93,17 @@
 	int mib[2] = { CTL_HW, HW_CPU_FREQ };
 	size_t sysctlLength = sizeof(clockRate);
 	if (sysctl(mib, 2, &clockRate, &sysctlLength, NULL, 0)) {
-		[self release];
 		return nil;
 	}
 	if (clockRate > 1000000000) {
-		clockSpeed = [[NSString stringWithFormat:@"%@GHz",
+		clockSpeed = [NSString stringWithFormat:@"%@GHz",
 							[twoDigitFloatFormatter stringForObjectValue:
-								[NSNumber numberWithFloat:(float)clockRate / 1000000000]]] retain];
+								[NSNumber numberWithFloat:(float)clockRate / 1000000000]]];
 	}
 	else {
-		clockSpeed = [[NSString stringWithFormat:@"%dMHz", clockRate / 1000000] retain];
+		clockSpeed = [NSString stringWithFormat:@"%dMHz", clockRate / 1000000];
 	}
 	if (!clockSpeed) {
-		[self release];
 		return nil;
 	}
 
@@ -110,10 +112,20 @@
 	mib[0] = CTL_HW;
 	mib[1] = HW_NCPU;
 	if (sysctl(mib, 2, &cpuCount, &sysctlLength, NULL, 0)) {
-		[self release];
 		return nil;
 	}
 
+    size_t size=sizeof(coreCount);
+    if(sysctlbyname("hw.physicalcpu", &coreCount, &size, NULL, 0)){
+        coreCount=cpuCount;
+    }
+
+    size=sizeof(packageCount);
+    if(sysctlbyname("hw.packages", &packageCount, &size, NULL, 0)){
+        packageCount=1;
+    }
+
+    
 	// Set up our mach host and default processor set for later calls
 	machHost = mach_host_self();
 	processor_set_default(machHost, &processorSet);
@@ -125,10 +137,9 @@
 	kern_return_t err = host_processor_info(machHost, PROCESSOR_CPU_LOAD_INFO, &processorCount,
 											(processor_info_array_t *)&processorTickInfo, &processorInfoCount);
 	if (err != KERN_SUCCESS) {
-		[self release];
 		return nil;
 	}
-	priorCPUTicks = malloc(processorCount * sizeof(struct processor_cpu_load_info));
+	priorCPUTicks = (processor_cpu_load_info_t) malloc(processorCount * sizeof(struct processor_cpu_load_info));
 	for (natural_t i = 0; i < processorCount; i++) {
 		for (natural_t j = 0; j < CPU_STATE_MAX; j++) {
 			priorCPUTicks[i].cpu_ticks[j] = processorTickInfo[i].cpu_ticks[j];
@@ -137,7 +148,7 @@
 	vm_deallocate(mach_task_self(), (vm_address_t)processorTickInfo, (vm_size_t)(processorInfoCount * sizeof(natural_t)));
 
 	// Localizable strings load
-	localizedStrings = [[NSDictionary dictionaryWithObjectsAndKeys:
+	localizedStrings = [NSDictionary dictionaryWithObjectsAndKeys:
 							[[NSBundle bundleForClass:[self class]] localizedStringForKey:kProcessorNameFormat value:nil table:nil],
 							kProcessorNameFormat,
 							[[NSBundle bundleForClass:[self class]] localizedStringForKey:kTaskThreadFormat value:nil table:nil],
@@ -146,9 +157,8 @@
 							kLoadAverageFormat,
 							[[NSBundle bundleForClass:[self class]] localizedStringForKey:kNoInfoErrorMessage value:nil table:nil],
 							kNoInfoErrorMessage,
-							nil] retain];
+							nil];
 	if (!localizedStrings) {
-		[self release];
 		return nil;
 	}
 
@@ -159,12 +169,7 @@
 
 - (void)dealloc {
 
-	[cpuName release];
-	[clockSpeed release];
 	if (priorCPUTicks) free(priorCPUTicks);
-	[localizedStrings release];
-	[twoDigitFloatFormatter release];
-	[super dealloc];
 
 } // dealloc
 
@@ -187,17 +192,30 @@
 } // cpuSpeed
 
 - (uint32_t)numberOfCPUs {
-
 	return cpuCount;
-
 } // numberOfCPUs
 
+- (uint32_t)numberOfCores {
+    return coreCount;
+} 
+
+-(NSString*)packages{
+    if(packageCount==1){
+        return @"";
+    }else{
+        return [NSString stringWithFormat:@"%@x ",@(packageCount)];
+    }
+}
 - (NSString *)processorDescription {
-
-	return [NSString stringWithFormat:[localizedStrings objectForKey:kProcessorNameFormat],
-				[self numberOfCPUs], [self cpuName], [self cpuSpeed]];
-
+	return [NSString stringWithFormat:@"%@%@ @ %@", [self packages], [self cpuName], [self cpuSpeed]];
 } // processorDescription
+- (NSString *)coreDescription {
+    NSString*hyperinfo=@"";
+    if(cpuCount!=coreCount){
+        hyperinfo=[NSString stringWithFormat:@" (%@ hyperthreads per core)",@(cpuCount/coreCount)];
+    }
+    return [NSString stringWithFormat:@"%@%@ physical cores%@",[self packages],@(coreCount/packageCount),hyperinfo];
+} // coreDescription
 
 ///////////////////////////////////////////////////////////////
 //
@@ -211,6 +229,7 @@
 	mach_msg_type_number_t count = PROCESSOR_SET_LOAD_INFO_COUNT;
 	kern_return_t err = processor_set_statistics(processorSet, PROCESSOR_SET_LOAD_INFO,
 												 (processor_set_info_t)&loadInfo, &count);
+    
 	if (err != KERN_SUCCESS) {
 		return [localizedStrings objectForKey:kNoInfoErrorMessage];
 	} else {
@@ -235,7 +254,7 @@
 
 } // loadAverage
 
-- (NSArray *)currentLoad  {
+- (NSArray *)currentLoadBySorting: (BOOL)sorted {
 
 	// Read the current ticks
 	natural_t processorCount;
@@ -278,15 +297,12 @@
 		}
 		total = system + user + idle;
 
-		// Sanity
-		if (total < 1) {
-			total = 1;
-		}
-
-		[loadInfo addObject:[NSDictionary dictionaryWithObjectsAndKeys:
-								[NSNumber numberWithFloat:((float)system / (float)total)], @"system",
-								[NSNumber numberWithFloat:((float)user / (float)total)], @"user",
-								nil]];
+		float normalize = (total < 1) ? 1 : (1.0 / total);
+		
+		MenuMeterCPULoad *load = [[MenuMeterCPULoad alloc] init];
+		load.system = system * normalize;
+		load.user = user * normalize;
+		[loadInfo addObject:load];
 	}
 
 	// Copy the new data into previous
@@ -296,6 +312,27 @@
 		}
 	}
 
+    // Sort the load if necessary
+    if (sorted == YES) {
+        NSMutableArray *sorted = [NSMutableArray array];
+        processorCount=(natural_t)[loadInfo count];
+        for (natural_t i = 0; i < processorCount; i++) {
+            float maxSum = 0.0f;
+            natural_t maxIndex = 0;
+            for (natural_t j = 0; j < (processorCount - i); j++) {
+                MenuMeterCPULoad *load = [loadInfo objectAtIndex: j];
+                float sum = load.system + load.user;
+                if (sum > maxSum) {
+                    maxSum = sum;
+                    maxIndex = j;
+                }
+            }
+            [sorted addObject: [loadInfo objectAtIndex: maxIndex]];
+            [loadInfo removeObjectAtIndex: maxIndex];
+        }
+        loadInfo = sorted;
+    }
+
 	// Dealloc
 	vm_deallocate(mach_task_self(), (vm_address_t)processorTickInfo, (vm_size_t)(processorInfoCount * sizeof(natural_t)));
 
@@ -303,6 +340,20 @@
 	return loadInfo;
 
 } // currentLoad
+
+- (float_t)cpuProximityTemperature {
+    float_t celsius = -273.15F;
+    if (kIOReturnSuccess == SMCOpen()) {
+        SMCKeyValue value;
+        //use harcoded value for a while
+        //TODO: implement SMC tab to allow setup smc gauges in toolbar
+        if (kIOReturnSuccess == SMCReadKey(toSMCCode("TC0P"), &value)) {
+            celsius = SP78_TO_CELSIUS(value.bytes);
+        }
+        SMCClose();
+    }
+    return celsius;
+} // cpuProximityTemperature
 
 ///////////////////////////////////////////////////////////////
 //
@@ -313,9 +364,25 @@
 - (NSString *)cpuPrettyName {
 
 #if  __i386__ || __x86_64__
-	// Intel Core Duo/Solo and later reported as 80486, just call
-	// everything "Intel"
-	return @"Intel";
+
+    char cpumodel[64];
+    size_t size = sizeof(cpumodel);
+    if (!sysctlbyname("machdep.cpu.brand_string", cpumodel, &size, NULL, 0)){
+        NSString*s=[NSString stringWithUTF8String:cpumodel];
+        NSRange r;
+        r=[s rangeOfString:@"@"];
+        if(r.location!=NSNotFound){
+            s=[s substringToIndex:r.location];
+        }
+        r=[s rangeOfString:@"CPU"];
+        if(r.location!=NSNotFound){
+            s=[s substringToIndex:r.location];
+        }
+        s=[s stringByReplacingOccurrencesOfString:@"(TM)" withString:@"™"];
+        s=[s stringByReplacingOccurrencesOfString:@"(R)" withString:@"®"];
+        return s;
+    }
+    return @"Intel";
 #else
 	// Start with nothing
 	NSString					*prettyName = @"Unknown CPU";

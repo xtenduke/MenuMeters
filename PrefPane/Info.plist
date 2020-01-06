@@ -7,9 +7,9 @@
 	<key>CFBundleExecutable</key>
 	<string>MenuMeters</string>
 	<key>CFBundleGetInfoString</key>
-	<string>MenuMeters El Capitan Port 1.9.2, ©2015 Y. Tachikawa</string>
+	<string>MM_COPYRIGHT</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.yujitach.MenuMeters</string>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -17,11 +17,11 @@
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.9.2</string>
+	<string>MM_VERSION</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>1.9.2</string>
+	<string>MM_VERSION</string>
 	<key>NSMainNibFile</key>
 	<string>MenuMetersPref</string>
 	<key>NSPrefPaneIconFile</key>

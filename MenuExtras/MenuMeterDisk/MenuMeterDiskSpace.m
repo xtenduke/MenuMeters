@@ -72,7 +72,7 @@ static NSComparisonResult SortDiskEntryByDeviceString(NSDictionary *a, NSDiction
 	}
 
 	// Load up our strings
-	localizedStrings = [[NSDictionary dictionaryWithObjectsAndKeys:
+	localizedStrings = [NSDictionary dictionaryWithObjectsAndKeys:
 							[[NSBundle bundleForClass:[self class]] localizedStringForKey:kUsedSpaceFormat value:nil table:nil],
 							kUsedSpaceFormat,
 							[[NSBundle bundleForClass:[self class]] localizedStringForKey:kFreeSpaceFormat value:nil table:nil],
@@ -85,22 +85,20 @@ static NSComparisonResult SortDiskEntryByDeviceString(NSDictionary *a, NSDiction
 							kMBLabel,
 							[[NSBundle bundleForClass:[self class]] localizedStringForKey:kGBLabel value:nil table:nil],
 							kGBLabel,
-							nil] retain];
+							nil];
 	if (!localizedStrings) {
-		[self release];
 		return nil;
 	}
 
 	// Set up a NumberFormatter for localization. This is based on code contributed by Mike Fischer
 	// (mike.fischer at fi-works.de) for use in MenuMeters.
-	NSNumberFormatter *tempFormat = [[[NSNumberFormatter alloc] init] autorelease];
+	NSNumberFormatter *tempFormat = [[NSNumberFormatter alloc] init];
 	[tempFormat setLocalizesFormat:YES];
 	[tempFormat setFormat:@"####0.00"];
 	// Go through an archive/unarchive cycle to work around a bug on pre-10.2.2 systems
 	// see http://cocoa.mamasam.com/COCOADEV/2001/12/2/21029.php
-	spaceFormatter = [[NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormat]] retain];
+	spaceFormatter = [NSUnarchiver unarchiveObjectWithData:[NSArchiver archivedDataWithRootObject:tempFormat]];
 	if (!spaceFormatter) {
-		[self release];
 		return nil;
 	}
 
@@ -108,13 +106,7 @@ static NSComparisonResult SortDiskEntryByDeviceString(NSDictionary *a, NSDiction
 
 } // init
 
-- (void)dealloc {
-
-	[localizedStrings release];
-	[spaceFormatter release];
-	[super dealloc];
-
-} // dealloc
+ // dealloc
 
 ///////////////////////////////////////////////////////////////
 //
@@ -138,14 +130,15 @@ static NSComparisonResult SortDiskEntryByDeviceString(NSDictionary *a, NSDiction
 	for (int i = 0; i < mountCount; i++) {
 		// We only view local volumes, which isn't easy (are FUSE volumes local?)
 		// Just look at filesystem type.
-		if((!strcmp(mountInfo[i].f_fstypename, "hfs") ||
+		if(!strcmp(mountInfo[i].f_fstypename, "hfs") ||
+                   !strcmp(mountInfo[i].f_fstypename, "apfs") ||
 			!strcmp(mountInfo[i].f_fstypename, "ufs") ||
 			!strcmp(mountInfo[i].f_fstypename, "msdos") ||
 			!strcmp(mountInfo[i].f_fstypename, "exfat") ||
 			!strcmp(mountInfo[i].f_fstypename, "ntfs") ||
 			!strcmp(mountInfo[i].f_fstypename, "cd9660") ||
 			!strcmp(mountInfo[i].f_fstypename, "cddafs") ||
-			!strcmp(mountInfo[i].f_fstypename, "udf"))) {
+			!strcmp(mountInfo[i].f_fstypename, "udf")) {
 
 			// Build the dictionary, start with 6 items (name, path, icon, free, used, total)
 			NSMutableDictionary *diskStats = [NSMutableDictionary dictionary];
@@ -205,7 +198,7 @@ static NSComparisonResult SortDiskEntryByDeviceString(NSDictionary *a, NSDiction
 						  forKey:@"free"];
 			[diskStats setObject:[NSString stringWithFormat:[localizedStrings objectForKey:kUsedSpaceFormat],
 									[self spaceString:(((float)mountInfo[i].f_blocks -
-														(float)mountInfo[i].f_bavail) * mountInfo[i].f_bsize)]]
+														(float)mountInfo[i].f_bavail) * (float)mountInfo[i].f_bsize)]]
 						  forKey:@"used"];
 			// Store the data into the array
 			[diskSpaceDetails addObject:diskStats];
